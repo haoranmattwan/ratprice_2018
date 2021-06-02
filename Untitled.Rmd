@@ -1,0 +1,278 @@
+---
+title: "intake"
+output: html_document
+---
+
+```{r}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(rethinking)
+library(rstan)
+library(readr)
+library(dplyr)
+library(ggplot2)
+library(tidyverse)
+library(ggpubr)
+library(gtsummary)
+library(knitr)
+
+Behav <- read.csv("data/data.csv")
+Behav$subj <- as.integer(as.factor(Behav$subj))
+rstan_options(auto_write = TRUE);
+options(mc.cores = parallel::detectCores());
+parallel:::setDefaultClusterOptions(setup_strategy = "sequential")
+
+coef_ownfood <- read.csv("data/coef_ownfood.csv")
+coef_ownfood$subj <- as.integer(as.factor(coef_ownfood$subj))
+rstan_options(auto_write = TRUE);
+options(mc.cores = parallel::detectCores());
+parallel:::setDefaultClusterOptions(setup_strategy = "sequential")
+
+coef_ownsoc <- read.csv("data/coef_ownsoc.csv")
+coef_ownsoc$subj <- as.integer(as.factor(coef_ownsoc$subj))
+rstan_options(auto_write = TRUE);
+options(mc.cores = parallel::detectCores());
+parallel:::setDefaultClusterOptions(setup_strategy = "sequential")
+```
+
+```{r setup, include=FALSE }
+# Create dataset for each experiment
+behav_cond1 <- subset(Behav, Behav$cond == 1)
+behav_cond2 <- subset(Behav, Behav$cond == 2)
+behav_cond3 <- subset(Behav, Behav$cond == 3)
+behav_cond4 <- subset(Behav, Behav$cond == 4)
+
+# Summary of independent variables in each condition
+cond4_summiv <- behav_cond4 %>%
+  group_by(subj, socfr, foodfr) %>%
+  count()
+cond4_summiv
+```
+
+```{r summ stat}
+# Summary of dependent variables in each condition for each subject
+  ## cond1
+  behav_cond1 %>%
+    filter(subj == 1) %>%
+    group_by(foodfr) %>%
+    summarize(mean(foodr), mean(socr), mean(foodresp_r), mean(socresp_r), mean(foodresp), mean(socresp))
+  behav_cond1 %>%
+    filter(subj == 2) %>%
+    group_by(foodfr) %>%
+    summarize(mean(foodr), mean(socr), mean(foodresp_r), mean(socresp_r), mean(foodresp), mean(socresp))
+  behav_cond1 %>%
+    filter(subj == 3) %>%
+    group_by(foodfr) %>%
+    summarize(mean(foodr), mean(socr), mean(foodresp_r), mean(socresp_r), mean(foodresp), mean(socresp))
+  behav_cond1 %>%
+    filter(subj == 4) %>%
+    group_by(foodfr) %>%
+    summarize(mean(foodr), mean(socr), mean(foodresp_r), mean(socresp_r), mean(foodresp), mean(socresp))
+
+  ## cond2
+  behav_cond2 %>%
+    filter(subj == 1) %>%
+    group_by(socfr) %>%
+    summarize(mean(socr), mean(foodr), mean(foodresp_r), mean(socresp_r), mean(foodresp), mean(socresp))
+  behav_cond2 %>%
+    filter(subj == 2) %>%
+    group_by(socfr) %>%
+    summarize(mean(socr), mean(foodr), mean(foodresp_r), mean(socresp_r), mean(foodresp), mean(socresp))
+  behav_cond2 %>%
+    filter(subj == 3) %>%
+    group_by(socfr) %>%
+    summarize(mean(socr), mean(foodr), mean(foodresp_r), mean(socresp_r), mean(foodresp), mean(socresp))
+  behav_cond2 %>%
+    filter(subj == 4) %>%
+    group_by(socfr) %>%
+    summarize(mean(socr), mean(foodr), mean(foodresp_r), mean(socresp_r), mean(foodresp), mean(socresp))
+  
+  ## cond3
+  behav_cond3 %>%
+    filter(subj == 2) %>%
+    group_by(foodfr) %>%
+    summarize(mean(foodr), mean(socr), mean(foodresp_r), mean(socresp_r), mean(foodresp), mean(socresp))
+  behav_cond3 %>%
+    filter(subj == 3) %>%
+    group_by(foodfr) %>%
+    summarize(mean(foodr), mean(socr), mean(foodresp_r), mean(socresp_r), mean(foodresp), mean(socresp))
+  
+  ## cond4
+  behav_cond4 %>%
+    filter(subj == 2) %>%
+    group_by(foodfr) %>%
+    summarize(mean(foodr), mean(socr), mean(foodresp_r), mean(socresp_r), mean(foodresp), mean(socresp))
+  behav_cond4 %>%
+    filter(subj == 3) %>%
+    group_by(foodfr) %>%
+    summarize(mean(foodr), mean(foodresp))
+
+# mean of subject in each condition
+  ## condition 4
+index_cond4 <- behav_cond4 %>%
+  group_by(foodfr) %>%
+  summarise(mean(foodr), mean(foodresp))
+  ## condition 3
+index_cond3 <- behav_cond3 %>%
+  group_by(foodfr) %>%
+  summarise(mean(foodr), mean(socr), mean(foodresp), mean(socresp), mean(foodresp_r), mean(socresp_r))
+  ## condition 1
+index_cond1 <- behav_cond1 %>%
+  group_by(foodfr) %>%
+  summarise(mean(foodr), mean(socr), mean(foodresp), mean(socresp), mean(foodresp_r), mean(socresp_r))
+  ## condition 2
+index_cond2 <- behav_cond2 %>%
+  group_by(socfr) %>%
+  summarise(mean(foodr), mean(socr), mean(foodresp), mean(socresp), mean(foodresp_r), mean(socresp_r))
+```
+
+```{r ownfood coef.}
+# derive the derivative of the demand curve function
+deriv_ready <- expression(x*10^((log10(0.5*999+(0.25*999^2+1)^0.5)*(1+(exp(-888/(log10(0.5*999+(0.25*999^2+1)^0.5))*(999)*x)-1)))))
+deriv <- D(deriv_ready,'x')
+
+# create a matrix to store the generated data
+x <- seq(from = 1, to = 101, by = 1e-04)
+tot_resp <- matrix(nrow = 1000001, ncol = 12)
+tot_resp[,1] <- seq(from = 1, to = 101, by = 1e-04)
+
+# generate total responding data according to the demand curve model
+for (i in 1:11) {
+  tot_resp[,i+1] <- (10^(log10(0.5 * coef_ownfood$coef.q0[i] + (0.25 * coef_ownfood$coef.q0[i]^2 + 1)^0.5) * (1 + (exp(-coef_ownfood$coef.a[i] / (log10(0.5 * coef_ownfood$coef.q0[i] + (0.25 * coef_ownfood$coef.q0[i]^2 + 1)^0.5)) * (coef_ownfood$coef.q0[i]) * x) - 1)))) + x * (10^(log10(0.5 * coef_ownfood$coef.q0[i] + (0.25 * coef_ownfood$coef.q0[i]^2 + 1)^0.5) * (1 + (exp(-coef_ownfood$coef.a[i]/(log10(0.5 * coef_ownfood$coef.q0[i] + (0.25 * coef_ownfood$coef.q0[i]^2 + 1)^0.5)) * (coef_ownfood$coef.q0[i]) * x) - 1))) * (log(10) * (log10(0.5 * coef_ownfood$coef.q0[i] + (0.25 * coef_ownfood$coef.q0[i]^2 + 1)^0.5) * (exp(-coef_ownfood$coef.a[i]/(log10(0.5 * coef_ownfood$coef.q0[i] + (0.25 * coef_ownfood$coef.q0[i]^2 + 1)^0.5)) * (coef_ownfood$coef.q0[i]) * x) * (-coef_ownfood$coef.a[i]/(log10(0.5 * coef_ownfood$coef.q0[i] + (0.25 * coef_ownfood$coef.q0[i]^2 + 1)^0.5)) * (coef_ownfood$coef.q0[i]))))))
+}
+tot_resp <- data.frame(tot_resp)
+tot_resp <- abs(tot_resp)
+
+# retrieve the Pmax based on the maximum total number of responses for each subj and cond mean
+  ## cond1
+  cond1s1 <- tot_resp %>%
+    select(X1,X2) %>%
+    filter(X1 < 40 & X1 >1) %>%
+    slice(which.min(X2))
+  cond1s2 <- tot_resp %>%
+    select(X1,X3) %>%
+    filter(X1 < 40 & X1 >1) %>%
+    slice(which.min(X3))
+  cond1s3 <- tot_resp %>%
+    select(X1,X4) %>%
+    filter(X1 < 40 & X1 >1) %>%
+    slice(which.min(X4))
+  cond1s4 <- tot_resp %>%
+    select(X1,X5) %>%
+    filter(X1 < 40 & X1 >1) %>%
+    slice(which.min(X5))
+  cond1mean <- tot_resp %>%
+    select(X1,X6) %>%
+    filter(X1 < 40 & X1 >1) %>%
+    slice(which.min(X6))
+    
+  ## cond2
+  cond3s2 <- tot_resp %>%
+    select(X1,X7) %>%
+    filter(X1 < 65 & X1 >1) %>%
+    slice(which.min(X7))
+  cond3s3 <- tot_resp %>%
+    select(X1,X8) %>%
+    filter(X1 < 40 & X1 >1) %>%
+    slice(which.min(X8))
+  cond3mean <- tot_resp %>%
+    select(X1,X9) %>%
+    filter(X1 < 40 & X1 >1) %>%
+    slice(which.min(X9))
+  
+  ## cond4
+  cond4s2 <- tot_resp %>%
+    select(X1,X10) %>%
+    filter(X1 < 40 & X1 >1) %>%
+    slice(which.min(X10))
+  cond4s3 <- tot_resp %>%
+    select(X1,X11) %>%
+    filter(X1 < 40 & X1 >1) %>%
+    slice(which.min(X11))
+  cond4mean <- tot_resp %>%
+    select(X1,X12) %>%
+    filter(X1 < 40 & X1 >1) %>%
+    slice(which.min(X12))
+
+  ## summary
+  ownfood_pmax <- c(cond1s1,cond1s2, cond1s3,cond1s4,cond1mean,cond3s2,cond3s3,cond3mean,cond4s2,cond4s3,cond4mean)
+  ownfood_pmax <- ownfood_pmax[c(1,3,5,7,9,11,13,15,17,19,21)]
+```
+
+```{r ownsoc coef.}
+# create a matrix to store the generated data
+tot_resp <- matrix(nrow = 1000001, ncol = 9)
+tot_resp[,1] <- seq(from = 1, to = 101, by = 1e-04)
+
+# generate total responding data according to the demand curve model
+for (i in 1:8) {
+  tot_resp[,i+1] <- (10^(log10(0.5 * coef_ownsoc$coef.q0[i] + (0.25 * coef_ownsoc$coef.q0[i]^2 + 1)^0.5) * (1 + (exp(-coef_ownsoc$coef.a[i] / (log10(0.5 * coef_ownsoc$coef.q0[i] + (0.25 * coef_ownsoc$coef.q0[i]^2 + 1)^0.5)) * (coef_ownsoc$coef.q0[i]) * x) - 1)))) + x * (10^(log10(0.5 * coef_ownsoc$coef.q0[i] + (0.25 * coef_ownsoc$coef.q0[i]^2 + 1)^0.5) * (1 + (exp(-coef_ownsoc$coef.a[i]/(log10(0.5 * coef_ownsoc$coef.q0[i] + (0.25 * coef_ownsoc$coef.q0[i]^2 + 1)^0.5)) * (coef_ownsoc$coef.q0[i]) * x) - 1))) * (log(10) * (log10(0.5 * coef_ownsoc$coef.q0[i] + (0.25 * coef_ownsoc$coef.q0[i]^2 + 1)^0.5) * (exp(-coef_ownsoc$coef.a[i]/(log10(0.5 * coef_ownsoc$coef.q0[i] + (0.25 * coef_ownsoc$coef.q0[i]^2 + 1)^0.5)) * (coef_ownsoc$coef.q0[i]) * x) * (-coef_ownsoc$coef.a[i]/(log10(0.5 * coef_ownsoc$coef.q0[i] + (0.25 * coef_ownsoc$coef.q0[i]^2 + 1)^0.5)) * (coef_ownsoc$coef.q0[i]))))))
+}
+tot_resp <- data.frame(tot_resp)
+tot_resp <- abs(tot_resp)
+
+# retrieve the Pmax based on the maximum total number of responses for each subj and cond mean
+  ## cond2
+  cond2s1 <- tot_resp %>%
+    select(X1,X2) %>%
+    filter(X1 < 10 & X1 >1) %>%
+    slice(which.min(X2))
+  cond2s2 <- tot_resp %>%
+    select(X1,X3) %>%
+    filter(X1 < 10 & X1 >1) %>%
+    slice(which.min(X3))
+  cond2s3 <- tot_resp %>%
+    select(X1,X4) %>%
+    filter(X1 < 10 & X1 >1) %>%
+    slice(which.min(X4))
+  cond2s4 <- tot_resp %>%
+    select(X1,X5) %>%
+    filter(X1 < 10 & X1 >1) %>%
+    slice(which.min(X5))
+  cond2mean <- tot_resp %>%
+    select(X1,X6) %>%
+    filter(X1 < 10 & X1 >1) %>%
+    slice(which.min(X6))
+  
+  ## cond3
+  cond3s2 <- tot_resp %>%
+    select(X1,X7) %>%
+    filter(X1 < 10 & X1 >1) %>%
+    slice(which.min(X7))
+  cond3s3 <- tot_resp %>%
+    select(X1,X8) %>%
+    filter(X1 < 10 & X1 >1) %>%
+    slice(which.min(X8))
+  cond3mean <- tot_resp %>%
+    select(X1,X9) %>%
+    filter(X1 < 10 & X1 >1) %>%
+    slice(which.min(X9))
+
+  ## summary
+  ownsoc_pmax <- c(cond2s1,cond2s2, cond2s3,cond2s4,cond2mean,cond3s2,cond3s3,cond3mean)
+  ownsoc_pmax <- ownsoc_pmax[c(1,3,5,7,9,11,13,15)]
+```
+
+```{r ownsoc s23 coef.}
+# store the coef value for the mean of subj. 2&3 for cond. 2
+coef.q0 <- 246
+coef.q1 <- 0.000156
+coef_ownfoods <- c(coef.q0, coef.q1)
+
+# create a matrix to store the generated data
+tot_resp <- matrix(nrow = 1000001, ncol = 2)
+tot_resp[,1] <- seq(from = 1, to = 101, by = 1e-04)
+x <- seq(from = 1, to = 101, by = 1e-04)
+
+# generate total responding data according to the demand curve model
+tot_resp[,2] <- (10^(log10(0.5 * coef_ownfoods[1] + (0.25 * coef_ownfoods[1]^2 + 1)^0.5) * (1 + (exp(-coef_ownfoods[2] / (log10(0.5 * coef_ownfoods[1] + (0.25 * coef_ownfoods[1]^2 + 1)^0.5)) * (coef_ownfoods[1]) * x) - 1)))) + x * (10^(log10(0.5 * coef_ownfoods[1] + (0.25 * coef_ownfoods[1]^2 + 1)^0.5) * (1 + (exp(-coef_ownfoods[2]/(log10(0.5 * coef_ownfoods[1] + (0.25 * coef_ownfoods[1]^2 + 1)^0.5)) * (coef_ownfoods[1]) * x) - 1))) * (log(10) * (log10(0.5 * coef_ownfoods[1] + (0.25 * coef_ownfoods[1]^2 + 1)^0.5) * (exp(-coef_ownfoods[2]/(log10(0.5 * coef_ownfoods[1] + (0.25 * coef_ownfoods[1]^2 + 1)^0.5)) * (coef_ownfoods[1]) * x) * (-coef_ownfoods[2]/(log10(0.5 * coef_ownfoods[1] + (0.25 * coef_ownfoods[1]^2 + 1)^0.5)) * (coef_ownfoods[1]))))))
+tot_resp <- data.frame(tot_resp)
+tot_resp <- abs(tot_resp)
+
+# retrieve the Pmax based on the maximum total number of responses for each subj and cond mean
+cond1s <- tot_resp %>%
+  select(X1,X2) %>%
+  filter(X1 < 60 & X1 >1) %>%
+  slice(which.min(X2))
+cond1s
+```
